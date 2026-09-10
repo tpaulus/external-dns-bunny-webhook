@@ -305,6 +305,8 @@ func (p *Provider) AdjustEndpoints(incoming []*endpoint.Endpoint) ([]*endpoint.E
 	}
 
 	for _, editing := range incoming {
+		normalizeEndpointTargets(editing)
+
 		for _, checked := range fetched {
 			if editing.DNSName != checked.DNSName || editing.RecordType != checked.RecordType || editing.SetIdentifier != checked.SetIdentifier {
 				continue
@@ -315,6 +317,15 @@ func (p *Provider) AdjustEndpoints(incoming []*endpoint.Endpoint) ([]*endpoint.E
 	}
 
 	return incoming, nil
+}
+
+func normalizeEndpointTargets(ep *endpoint.Endpoint) {
+	switch ep.RecordType {
+	case endpoint.RecordTypeCNAME, endpoint.RecordTypeMX, endpoint.RecordTypeSRV:
+		for index, target := range ep.Targets {
+			ep.Targets[index] = strings.TrimSuffix(target, ".")
+		}
+	}
 }
 
 // GetDomainFilter returns the domain filter used by this provider.

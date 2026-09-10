@@ -308,6 +308,60 @@ func TestDeleteEndpointsDeletesEveryDuplicateTarget(t *testing.T) {
 	}
 }
 
+func TestAdjustEndpointsNormalizesHostnameTargets(t *testing.T) {
+	provider := &Provider{
+		client: &recordingClient{
+			zones: []*Zone{
+				{
+					ID:     1,
+					Domain: "example.com",
+					Records: []*Record{
+						{Type: RecordTypeCNAME, Name: "mail", Value: "mailhost.example.com"},
+						{Type: RecordTypeMX, Name: "", Priority: 10, Value: "mail.example.com"},
+						{Type: RecordTypeSRV, Name: "_submission._tcp", Priority: 0, Weight: 1, Port: 587, Value: "smtp.example.com"},
+					},
+				},
+			},
+		},
+		zoneMap: xsync.NewMapOf[string, int64](),
+	}
+	endpoints := []*endpoint.Endpoint{
+		{
+			DNSName:    "mail.example.com",
+			RecordType: "CNAME",
+			Targets:    endpoint.Targets{"mailhost.example.com."},
+			Labels:     endpoint.NewLabels(),
+		},
+		{
+			DNSName:    "example.com",
+			RecordType: "MX",
+			Targets:    endpoint.Targets{"10 mail.example.com."},
+			Labels:     endpoint.NewLabels(),
+		},
+		{
+			DNSName:    "_submission._tcp.example.com",
+			RecordType: "SRV",
+			Targets:    endpoint.Targets{"0 1 587 smtp.example.com."},
+			Labels:     endpoint.NewLabels(),
+		},
+	}
+
+	if _, err := provider.AdjustEndpoints(endpoints); err != nil {
+		t.Fatalf("AdjustEndpoints() error = %v", err)
+	}
+
+	want := []endpoint.Targets{
+		{"mailhost.example.com"},
+		{"10 mail.example.com"},
+		{"0 1 587 smtp.example.com"},
+	}
+	for index, ep := range endpoints {
+		if !reflect.DeepEqual(ep.Targets, want[index]) {
+			t.Errorf("endpoint %d targets = %v, want %v", index, ep.Targets, want[index])
+		}
+	}
+}
+
 type recordingClient struct {
 	created []CreateRecordRequest
 	deleted []int64
