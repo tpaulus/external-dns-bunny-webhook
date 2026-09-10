@@ -197,12 +197,59 @@ func TestGetDomainFilterRestrictsRecordsToBunnyZones(t *testing.T) {
 	}
 }
 
+func TestSupportedRecordType(t *testing.T) {
+	provider := &Provider{}
+
+	for _, recordType := range []string{"A", "AAAA", "CNAME", "MX", "SRV", "TXT"} {
+		if !provider.SupportedRecordType(recordType) {
+			t.Errorf("SupportedRecordType(%q) = false, want true", recordType)
+		}
+	}
+
+	for _, recordType := range []string{"CAA", "NS", "PTR"} {
+		if provider.SupportedRecordType(recordType) {
+			t.Errorf("SupportedRecordType(%q) = true, want false", recordType)
+		}
+	}
+}
+
+func TestRecordsIncludesMXAndSRV(t *testing.T) {
+	client := &recordingClient{
+		zones: []*Zone{
+			{
+				ID:     1,
+				Domain: "example.com",
+				Records: []*Record{
+					{Type: RecordTypeMX, Name: "", Priority: 10, Value: "mail.example.com"},
+					{Type: RecordTypeSRV, Name: "_submission._tcp", Priority: 0, Weight: 1, Port: 587, Value: "smtp.example.com"},
+				},
+			},
+		},
+	}
+	provider := &Provider{
+		client:  client,
+		zoneMap: xsync.NewMapOf[string, int64](),
+	}
+
+	records, err := provider.Records(context.Background())
+	if err != nil {
+		t.Fatalf("Records() error = %v", err)
+	}
+	if len(records) != 2 {
+		t.Fatalf("Records() returned %d records, want 2", len(records))
+	}
+	if records[0].RecordType != "MX" || records[1].RecordType != "SRV" {
+		t.Fatalf("Records() types = %q, %q, want MX, SRV", records[0].RecordType, records[1].RecordType)
+	}
+}
+
 type recordingClient struct {
 	created []CreateRecordRequest
+	zones   []*Zone
 }
 
 func (c *recordingClient) ListZones(context.Context, ListZonesRequest) (*ListZonesResponse, error) {
-	return nil, nil
+	return &ListZonesResponse{Items: c.zones}, nil
 }
 
 func (c *recordingClient) CreateRecord(_ context.Context, _ string, request CreateRecordRequest) (*Record, error) {

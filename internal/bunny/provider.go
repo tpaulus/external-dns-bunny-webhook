@@ -100,7 +100,7 @@ func (p *Provider) Records(ctx context.Context) ([]*endpoint.Endpoint, error) {
 		for _, record := range zone.Records {
 			// First check if the record type is supported, and if not
 			// skip the record altogether.
-			if !provider.SupportedRecordType(record.Type.String()) {
+			if !p.SupportedRecordType(record.Type.String()) {
 				continue
 			}
 
@@ -109,6 +109,15 @@ func (p *Provider) Records(ctx context.Context) ([]*endpoint.Endpoint, error) {
 	}
 
 	return endpoints, nil
+}
+
+func (p *Provider) SupportedRecordType(recordType string) bool {
+	switch recordType {
+	case "A", "AAAA", "CNAME", "MX", "SRV", "TXT":
+		return true
+	default:
+		return false
+	}
 }
 
 func (p *Provider) ApplyChanges(ctx context.Context, changes *plan.Changes) error {
