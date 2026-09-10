@@ -319,27 +319,6 @@ func (p *Provider) GetDomainFilter() endpoint.DomainFilterInterface {
 	}
 }
 
-// getZoneID returns the zone ID for a given record name using the zone
-// map. If the zone ID is not found, an error is returned. The record name
-// is expected to be a fully qualified DNS name (record + domain. e.g. foo.example.com).
-func (p *Provider) getZoneID(dnsName string) (int64, error) {
-	errs := oops.In("Provider").
-		Span("getZoneID").
-		With("dnsName", dnsName)
-
-	_, domainName, ok := extractRecordComponents(p.allZones(), dnsName)
-	if !ok {
-		return 0, errs.Errorf("failed to extract components for %q", dnsName)
-	}
-
-	zoneID, ok := p.zoneMap.Load(domainName)
-	if !ok {
-		return 0, errs.Errorf("zone ID for DNS name %q (%s) not found", dnsName, domainName)
-	}
-
-	return zoneID, nil
-}
-
 // createEndpoints creates the given endpoints.
 func (p *Provider) createEndpoints(ctx context.Context, creates []*endpoint.Endpoint) error {
 	errs := oops.In("Provider").
@@ -347,14 +326,16 @@ func (p *Provider) createEndpoints(ctx context.Context, creates []*endpoint.Endp
 		With("creates", len(creates))
 
 	for _, create := range creates {
-		bunnyZoneID, err := p.getZoneID(create.DNSName)
-		if err != nil {
-			return errs.Wrapf(err, "failed to create record %q", create.DNSName)
-		}
-
 		recordName, domainName, ok := extractRecordComponents(p.allZones(), create.DNSName)
 		if !ok {
-			return errs.Errorf("failed to extract components for %q", create.DNSName)
+			slog.Warn("Skipping record for domain not hosted by Bunny.",
+				slog.String("dns_name", create.DNSName))
+			continue
+		}
+
+		bunnyZoneID, ok := p.zoneMap.Load(domainName)
+		if !ok {
+			return errs.Errorf("zone ID for DNS name %q (%s) not found", create.DNSName, domainName)
 		}
 
 		opts, err := providerSpecificOptionsFromEndpoint(create)

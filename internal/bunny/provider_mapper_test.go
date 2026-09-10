@@ -140,6 +140,26 @@ func TestCreateEndpointsConvertsEveryMXAndSRVTarget(t *testing.T) {
 	}
 }
 
+func TestCreateEndpointsSkipsUnmanagedZone(t *testing.T) {
+	client := &recordingClient{}
+	provider := &Provider{
+		client:  client,
+		zoneMap: xsync.NewMapOf[string, int64](),
+	}
+	provider.zoneMap.Store("example.com", 1)
+
+	endpoints := []*endpoint.Endpoint{
+		endpoint.NewEndpoint("unmanaged.example.net", "A", "192.0.2.1"),
+	}
+
+	if err := provider.createEndpoints(context.Background(), endpoints); err != nil {
+		t.Fatalf("createEndpoints() error = %v", err)
+	}
+	if len(client.created) != 0 {
+		t.Fatalf("created %d records for an unmanaged zone", len(client.created))
+	}
+}
+
 func TestSetRecordTargetRejectsInvalidRecordTargets(t *testing.T) {
 	tests := []struct {
 		recordType RecordType
