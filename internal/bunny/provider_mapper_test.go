@@ -157,6 +157,26 @@ func TestSetRecordTargetRejectsInvalidRecordTargets(t *testing.T) {
 	}
 }
 
+func TestGetDomainFilterRestrictsRecordsToBunnyZones(t *testing.T) {
+	provider := &Provider{
+		filter:  endpoint.NewDomainFilterWithExclusions(nil, []string{"excluded.example.com"}),
+		zoneMap: xsync.NewMapOf[string, int64](),
+	}
+	provider.zoneMap.Store("example.com", 1)
+	provider.zoneMap.Store("excluded.example.com", 2)
+
+	filter := provider.GetDomainFilter()
+	if !filter.Match("mail.example.com") {
+		t.Fatal("Bunny zone record did not match the domain filter")
+	}
+	if filter.Match("mail.excluded.example.com") {
+		t.Fatal("excluded Bunny zone record matched the domain filter")
+	}
+	if filter.Match("mail.unmanaged.net") {
+		t.Fatal("unmanaged zone record matched the domain filter")
+	}
+}
+
 type recordingClient struct {
 	created []CreateRecordRequest
 }

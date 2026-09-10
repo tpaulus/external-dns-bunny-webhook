@@ -36,6 +36,15 @@ type Provider struct {
 	zoneMap *xsync.MapOf[string, int64]
 }
 
+type zoneDomainFilter struct {
+	zones      endpoint.DomainFilterInterface
+	configured endpoint.DomainFilterInterface
+}
+
+func (f zoneDomainFilter) Match(domain string) bool {
+	return f.zones.Match(domain) && f.configured.Match(domain)
+}
+
 func NewProvider(client Client, options Options) *Provider {
 	provider := &Provider{
 		Options: options,
@@ -290,7 +299,24 @@ func (p *Provider) AdjustEndpoints(incoming []*endpoint.Endpoint) ([]*endpoint.E
 
 // GetDomainFilter returns the domain filter used by this provider.
 func (p *Provider) GetDomainFilter() endpoint.DomainFilterInterface {
-	return p.filter
+	var zones []string
+	p.zoneMap.Range(func(zone string, _ int64) bool {
+		if p.filter.Match(zone) {
+			zones = append(zones, zone)
+		}
+		return true
+	})
+
+	// Keep the configured filter when the initial zone lookup failed. Records
+	// will then be retried once the Bunny API is reachable again.
+	if len(zones) == 0 {
+		return p.filter
+	}
+
+	return zoneDomainFilter{
+		zones:      endpoint.NewDomainFilter(zones),
+		configured: p.filter,
+	}
 }
 
 // getZoneID returns the zone ID for a given record name using the zone
