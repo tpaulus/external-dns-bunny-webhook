@@ -1,6 +1,6 @@
 # Kubernetes ExternalDNS - bunny.net provider
 
-[![Main](https://github.com/insanity54/external-dns-bunny-webhook/actions/workflows/ci.yaml/badge.svg?branch=main)](https://github.com/insanity54/external-dns-bunny-webhook/actions/workflows/ci.yaml)
+[![Main](https://github.com/tpaulus/external-dns-bunny-webhook/actions/workflows/ci.yaml/badge.svg?branch=main)](https://github.com/tpaulus/external-dns-bunny-webhook/actions/workflows/ci.yaml)
 
 ![Alt](https://repobeats.axiom.co/api/embed/84439b4fb9d24956578d7e6f92953965a005b6bb.svg "Repobeats analytics image")
 
@@ -22,6 +22,14 @@ See examples directory for an example of deploying the provider with kluctl/Helm
 
 Configuration options are available below and may be set using environment
 variables on the webhook container.
+
+## Supported record types
+
+The provider supports A, AAAA, CNAME, MX, SRV, and TXT records. MX and SRV
+targets use ExternalDNS's standard format: `<priority> <hostname>` for MX and
+`<priority> <weight> <port> <hostname>` for SRV. An SRV target of `.` is
+represented as a disabled Bunny record, preserving its RFC 2782
+service-unavailable behavior.
 
 
 ## Configuration

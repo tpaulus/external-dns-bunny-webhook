@@ -1,6 +1,6 @@
 .PHONY: default check test build image
 
-IMAGE_NAME := insanity54/external-dns-bunny-webhook
+IMAGE_NAME := ghcr.io/tpaulus/external-dns-bunny-webhook
 BINARY_NAME=external-dns-bunny-webhook
 CMD_PATH=./cmd/webhook
 

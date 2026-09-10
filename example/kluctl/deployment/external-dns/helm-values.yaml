@@ -16,7 +16,7 @@ provider:
         drop:
           - 'ALL'
     image:
-      repository: docker.io/insanity54/external-dns-bunny-webhook
+      repository: ghcr.io/tpaulus/external-dns-bunny-webhook
       tag: main
     env:
       - name: BUNNY_API_KEY

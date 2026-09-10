@@ -112,6 +112,8 @@ type CreateRecordRequest struct {
 	TTLSeconds  int         `json:"Ttl"`
 	Value       string      `json:"Value"`
 	Name        string      `json:"Name"`
+	Priority    int         `json:"Priority"`
+	Port        int         `json:"Port"`
 	MonitorType MonitorType `json:"MonitorType"`
 	Weight      int         `json:"Weight"`
 	Disabled    bool        `json:"Disabled"`
@@ -185,6 +187,8 @@ func (c *BunnyClient) DeleteRecord(ctx context.Context, zoneID int64, recordID i
 type UpdateRecordRequest struct {
 	TTLSeconds  int         `json:"Ttl"`
 	Value       string      `json:"Value"`
+	Priority    int         `json:"Priority"`
+	Port        int         `json:"Port"`
 	MonitorType MonitorType `json:"MonitorType"`
 	Weight      int         `json:"Weight"`
 	Disabled    bool        `json:"Disabled"`

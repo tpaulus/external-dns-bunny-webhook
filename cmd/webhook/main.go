@@ -10,11 +10,11 @@ import (
 	"syscall"
 
 	"github.com/hashicorp/go-cleanhttp"
-	"github.com/insanity54/external-dns-bunny-webhook/internal/bunny"
-	"github.com/insanity54/external-dns-bunny-webhook/internal/health"
-	"github.com/insanity54/external-dns-bunny-webhook/internal/webhook"
 	"github.com/sethvargo/go-envconfig"
 	"github.com/thejerf/suture/v4"
+	"github.com/tpaulus/external-dns-bunny-webhook/internal/bunny"
+	"github.com/tpaulus/external-dns-bunny-webhook/internal/health"
+	"github.com/tpaulus/external-dns-bunny-webhook/internal/webhook"
 )
 
 const (
