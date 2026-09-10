@@ -7,6 +7,7 @@ import (
 
 	"github.com/puzpuzpuz/xsync/v3"
 	"sigs.k8s.io/external-dns/endpoint"
+	"sigs.k8s.io/external-dns/plan"
 )
 
 func TestRecordToEndpointFormatsMXAndSRVTargets(t *testing.T) {
@@ -221,6 +222,7 @@ func TestRecordsIncludesMXAndSRV(t *testing.T) {
 				Domain: "example.com",
 				Records: []*Record{
 					{Type: RecordTypeMX, Name: "", Priority: 10, Value: "mail.example.com"},
+					{Type: RecordTypeMX, Name: "", Priority: 20, Value: "backup-mail.example.com"},
 					{Type: RecordTypeSRV, Name: "_submission._tcp", Priority: 0, Weight: 1, Port: 587, Value: "smtp.example.com"},
 				},
 			},
@@ -241,10 +243,74 @@ func TestRecordsIncludesMXAndSRV(t *testing.T) {
 	if records[0].RecordType != "MX" || records[1].RecordType != "SRV" {
 		t.Fatalf("Records() types = %q, %q, want MX, SRV", records[0].RecordType, records[1].RecordType)
 	}
+	if !reflect.DeepEqual(records[0].Targets, endpoint.Targets{"10 mail.example.com", "20 backup-mail.example.com"}) {
+		t.Fatalf("Records() MX targets = %v, want two MX targets", records[0].Targets)
+	}
+}
+
+func TestDuplicateRecordTargetsScheduleAnUpdate(t *testing.T) {
+	current := endpoint.NewEndpoint(
+		"example.com",
+		"MX",
+		"10 mail.example.com",
+		"10 mail.example.com",
+		"20 backup-mail.example.com",
+	)
+	current.Labels = map[string]string{endpoint.OwnerLabelKey: "external-dns"}
+	desired := endpoint.NewEndpoint(
+		"example.com",
+		"MX",
+		"10 mail.example.com",
+		"20 backup-mail.example.com",
+	)
+
+	changes := (&plan.Plan{
+		Current:        []*endpoint.Endpoint{current},
+		Desired:        []*endpoint.Endpoint{desired},
+		Policies:       []plan.Policy{&plan.SyncPolicy{}},
+		ManagedRecords: []string{"MX"},
+		OwnerID:        "external-dns",
+	}).Calculate().Changes
+
+	if len(changes.UpdateOld) != 1 || len(changes.UpdateNew) != 1 {
+		t.Fatalf("duplicate MX records produced changes %#v, want one update", changes)
+	}
+	if !reflect.DeepEqual(changes.UpdateOld[0].Targets, endpoint.Targets{"10 mail.example.com", "10 mail.example.com", "20 backup-mail.example.com"}) {
+		t.Fatalf("UpdateOld targets = %v, want all duplicate targets", changes.UpdateOld[0].Targets)
+	}
+}
+
+func TestDeleteEndpointsDeletesEveryDuplicateTarget(t *testing.T) {
+	client := &recordingClient{
+		zones: []*Zone{
+			{
+				ID:     1,
+				Domain: "example.com",
+				Records: []*Record{
+					{ID: 10, Type: RecordTypeMX, Name: "", Priority: 10, Value: "mail.example.com"},
+					{ID: 11, Type: RecordTypeMX, Name: "", Priority: 10, Value: "mail.example.com"},
+				},
+			},
+		},
+	}
+	provider := &Provider{client: client, zoneMap: xsync.NewMapOf[string, int64]()}
+	deletion := endpoint.NewEndpoint("example.com", "MX", "10 mail.example.com", "10 mail.example.com")
+
+	identifiers, err := provider.fetchIdentifiers(context.Background(), []*endpoint.Endpoint{deletion})
+	if err != nil {
+		t.Fatalf("fetchIdentifiers() error = %v", err)
+	}
+	if err := provider.deleteEndpoints(context.Background(), identifiers, []*endpoint.Endpoint{deletion}); err != nil {
+		t.Fatalf("deleteEndpoints() error = %v", err)
+	}
+	if !reflect.DeepEqual(client.deleted, []int64{10, 11}) {
+		t.Fatalf("deleted record IDs = %v, want [10 11]", client.deleted)
+	}
 }
 
 type recordingClient struct {
 	created []CreateRecordRequest
+	deleted []int64
 	zones   []*Zone
 }
 
@@ -261,6 +327,7 @@ func (c *recordingClient) UpdateRecord(context.Context, int64, int64, UpdateReco
 	return nil
 }
 
-func (c *recordingClient) DeleteRecord(context.Context, int64, int64) error {
+func (c *recordingClient) DeleteRecord(_ context.Context, _ int64, recordID int64) error {
+	c.deleted = append(c.deleted, recordID)
 	return nil
 }

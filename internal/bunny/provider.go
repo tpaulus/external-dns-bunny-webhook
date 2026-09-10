@@ -96,6 +96,7 @@ func (p *Provider) Records(ctx context.Context) ([]*endpoint.Endpoint, error) {
 	}
 
 	var endpoints []*endpoint.Endpoint
+	endpointIndexes := make(map[endpoint.EndpointKey]int)
 	for _, zone := range zones {
 		for _, record := range zone.Records {
 			// First check if the record type is supported, and if not
@@ -104,7 +105,15 @@ func (p *Provider) Records(ctx context.Context) ([]*endpoint.Endpoint, error) {
 				continue
 			}
 
-			endpoints = append(endpoints, recordToEndpoint(zone.Domain, record))
+			ep := recordToEndpoint(zone.Domain, record)
+			key := ep.Key()
+			if index, ok := endpointIndexes[key]; ok {
+				endpoints[index].Targets = append(endpoints[index].Targets, ep.Targets...)
+				continue
+			}
+
+			endpointIndexes[key] = len(endpoints)
+			endpoints = append(endpoints, ep)
 		}
 	}
 
@@ -219,8 +228,8 @@ func (p *Provider) applyChangesDryRun(ctx context.Context, changes *plan.Changes
 
 	for _, ep := range changes.Delete {
 		for _, target := range ep.Targets {
-			tuple, ok := tuples[[3]string{ep.RecordType, ep.DNSName, target}]
-			if !ok {
+			identifierTuples, ok := tuples[[3]string{ep.RecordType, ep.DNSName, target}]
+			if !ok || len(identifierTuples) == 0 {
 				slog.InfoContext(ctx, "DRY RUN: Delete record (would skip, not found in Bunny API)",
 					slog.Group("record",
 						slog.String("name", ep.DNSName),
@@ -231,6 +240,7 @@ func (p *Provider) applyChangesDryRun(ctx context.Context, changes *plan.Changes
 
 				continue
 			}
+			tuple := identifierTuples[0]
 
 			slog.InfoContext(ctx, "DRY RUN: Delete record",
 				slog.Int64("zone_id", tuple.ZoneID),
@@ -246,8 +256,8 @@ func (p *Provider) applyChangesDryRun(ctx context.Context, changes *plan.Changes
 
 	for _, ep := range changes.UpdateOld {
 		for _, target := range ep.Targets {
-			tuple, ok := tuples[[3]string{ep.RecordType, ep.DNSName, target}]
-			if !ok {
+			identifierTuples, ok := tuples[[3]string{ep.RecordType, ep.DNSName, target}]
+			if !ok || len(identifierTuples) == 0 {
 				slog.InfoContext(ctx, "DRY RUN: Update record (would skip, not found in Bunny API)",
 					slog.Group("record",
 						slog.String("name", ep.DNSName),
@@ -258,6 +268,7 @@ func (p *Provider) applyChangesDryRun(ctx context.Context, changes *plan.Changes
 
 				continue
 			}
+			tuple := identifierTuples[0]
 
 			slog.InfoContext(ctx, "DRY RUN: Replace record",
 				slog.Int64("zone_id", tuple.ZoneID),
@@ -430,13 +441,20 @@ func (p *Provider) createEndpoints(ctx context.Context, creates []*endpoint.Endp
 	return nil
 }
 
-func (p *Provider) deleteEndpoints(ctx context.Context, identifiers map[[3]string]identifierTuple, deletions []*endpoint.Endpoint) error {
+func (p *Provider) deleteEndpoints(ctx context.Context, identifiers map[[3]string][]identifierTuple, deletions []*endpoint.Endpoint) error {
 	for _, deletion := range deletions {
 		for _, target := range deletion.Targets {
-			tuple, ok := identifiers[[3]string{deletion.RecordType, deletion.DNSName, target}]
+			key := [3]string{deletion.RecordType, deletion.DNSName, target}
+			tuples, ok := identifiers[key]
 			if !ok {
 				return fmt.Errorf("failed to get record identifiers for %q target %q", deletion.DNSName, target)
 			}
+			if len(tuples) == 0 {
+				return fmt.Errorf("no record identifiers remain for %q target %q", deletion.DNSName, target)
+			}
+
+			tuple := tuples[0]
+			identifiers[key] = tuples[1:]
 
 			if err := p.client.DeleteRecord(ctx, tuple.ZoneID, tuple.RecordID); err != nil {
 				return err
@@ -462,10 +480,10 @@ type identifierTuple struct {
 	RecordID int64
 }
 
-// fetchIdentifiers fetches the zone and record identifiers for the given endpoints. This allows
-// us to delete every target in a multi-target record set independently.
-func (p *Provider) fetchIdentifiers(ctx context.Context, endpoints []*endpoint.Endpoint) (map[[3]string]identifierTuple, error) {
-	identifiers := make(map[[3]string]identifierTuple)
+// fetchIdentifiers fetches the zone and record identifiers for the given endpoints. Keeping all
+// identifiers for each target lets an update delete pre-existing duplicate Bunny records.
+func (p *Provider) fetchIdentifiers(ctx context.Context, endpoints []*endpoint.Endpoint) (map[[3]string][]identifierTuple, error) {
+	identifiers := make(map[[3]string][]identifierTuple)
 
 	zones, err := p.fetchZones(ctx)
 	if err != nil {
@@ -499,10 +517,12 @@ func (p *Provider) fetchIdentifiers(ctx context.Context, endpoints []*endpoint.E
 						continue
 					}
 
-					identifiers[[3]string{ep.RecordType, ep.DNSName, endpointTarget}] = identifierTuple{
+					key := [3]string{ep.RecordType, ep.DNSName, endpointTarget}
+					identifiers[key] = append(identifiers[key], identifierTuple{
 						ZoneID:   zone.ID,
 						RecordID: record.ID,
-					}
+					})
+					break
 				}
 			}
 		}
