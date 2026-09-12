@@ -46,9 +46,19 @@ func targetFromRecord(record *Record) string {
 		}
 
 		return fmt.Sprintf("%d %d %d %s", record.Priority, record.Weight, record.Port, target)
+	case RecordTypeTXT:
+		return unquoteTXTValue(record.Value)
 	default:
 		return record.Value
 	}
+}
+
+func unquoteTXTValue(value string) string {
+	if len(value) >= 2 && value[0] == '"' && value[len(value)-1] == '"' {
+		return value[1 : len(value)-1]
+	}
+
+	return value
 }
 
 func setRecordTarget(record *Record, target string) error {

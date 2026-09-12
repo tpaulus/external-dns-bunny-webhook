@@ -51,6 +51,24 @@ func TestRecordToEndpointFormatsMXAndSRVTargets(t *testing.T) {
 			},
 			target: "0 0 0 ",
 		},
+		{
+			name: "quoted TXT",
+			record: Record{
+				Name:  "txt._metadata",
+				Type:  RecordTypeTXT,
+				Value: `"heritage=external-dns,external-dns/owner=default"`,
+			},
+			target: "heritage=external-dns,external-dns/owner=default",
+		},
+		{
+			name: "unquoted TXT",
+			record: Record{
+				Name:  "_dmarc",
+				Type:  RecordTypeTXT,
+				Value: "v=DMARC1; p=quarantine",
+			},
+			target: "v=DMARC1; p=quarantine",
+		},
 	}
 
 	for _, tt := range tests {
