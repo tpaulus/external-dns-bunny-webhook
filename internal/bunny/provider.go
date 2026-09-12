@@ -22,6 +22,7 @@ var (
 
 type Options struct {
 	APIKey               string   `env:"API_KEY, required"`
+	AdoptExistingRecords bool     `env:"ADOPT_EXISTING_RECORDS, default=false"`
 	DryRun               bool     `env:"DRY_RUN, default=false"`
 	ExcludeDomains       []string `env:"EXCLUDE_DOMAINS"`
 	ExcludeDomainsRegexp string   `env:"EXCLUDE_DOMAINS_REGEXP"`
@@ -106,6 +107,12 @@ func (p *Provider) Records(ctx context.Context) ([]*endpoint.Endpoint, error) {
 			}
 
 			ep := recordToEndpoint(zone.Domain, record)
+			if p.Options.AdoptExistingRecords {
+				if ep.Labels == nil {
+					ep.Labels = endpoint.NewLabels()
+				}
+				ep.Labels[endpoint.OwnerLabelKey] = "default"
+			}
 			key := ep.Key()
 			if index, ok := endpointIndexes[key]; ok {
 				endpoints[index].Targets = append(endpoints[index].Targets, ep.Targets...)
@@ -137,6 +144,10 @@ func (p *Provider) ApplyChanges(ctx context.Context, changes *plan.Changes) erro
 	}
 
 	errs := oops.In("Provider").Span("ApplyChanges")
+
+	if p.Options.AdoptExistingRecords {
+		changes = changesWithoutForcedRecordRecreation(changes)
+	}
 
 	var createCount, deleteCount, updateCount int
 	if changes != nil {
@@ -180,6 +191,59 @@ func (p *Provider) ApplyChanges(ctx context.Context, changes *plan.Changes) erro
 	}
 
 	return nil
+}
+
+func changesWithoutForcedRecordRecreation(changes *plan.Changes) *plan.Changes {
+	if changes == nil {
+		return nil
+	}
+
+	forced := make(map[endpoint.EndpointKey]struct{})
+	for _, ep := range changes.UpdateOld {
+		if value, ok := ep.GetProviderSpecificProperty("txt/force-update"); ok && value == "true" {
+			forced[ep.Key()] = struct{}{}
+		}
+	}
+
+	if len(forced) == 0 {
+		return changes
+	}
+
+	filterUpdateOld := func(endpoints []*endpoint.Endpoint) []*endpoint.Endpoint {
+		filtered := make([]*endpoint.Endpoint, 0, len(endpoints))
+		for _, ep := range endpoints {
+			if _, ok := forced[ep.Key()]; ok {
+				continue
+			}
+			if ownedRecord, isOwnershipRecord := ep.Labels[endpoint.OwnedRecordLabelKey]; isOwnershipRecord {
+				for key := range forced {
+					if key.DNSName == ownedRecord {
+						goto skip
+					}
+				}
+			}
+			filtered = append(filtered, ep)
+		skip:
+		}
+		return filtered
+	}
+
+	filterUpdateNew := func(endpoints []*endpoint.Endpoint) []*endpoint.Endpoint {
+		filtered := make([]*endpoint.Endpoint, 0, len(endpoints))
+		for _, ep := range endpoints {
+			if _, ok := forced[ep.Key()]; !ok {
+				filtered = append(filtered, ep)
+			}
+		}
+		return filtered
+	}
+
+	return &plan.Changes{
+		Create:    changes.Create,
+		Delete:    changes.Delete,
+		UpdateOld: filterUpdateOld(changes.UpdateOld),
+		UpdateNew: filterUpdateNew(changes.UpdateNew),
+	}
 }
 
 func (p *Provider) applyChangesDryRun(ctx context.Context, changes *plan.Changes) error {

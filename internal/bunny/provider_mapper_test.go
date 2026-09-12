@@ -246,6 +246,7 @@ func TestRecordsIncludesMXAndSRV(t *testing.T) {
 			},
 		},
 	}
+
 	provider := &Provider{
 		client:  client,
 		zoneMap: xsync.NewMapOf[string, int64](),
@@ -263,6 +264,26 @@ func TestRecordsIncludesMXAndSRV(t *testing.T) {
 	}
 	if !reflect.DeepEqual(records[0].Targets, endpoint.Targets{"10 mail.example.com", "20 backup-mail.example.com"}) {
 		t.Fatalf("Records() MX targets = %v, want two MX targets", records[0].Targets)
+	}
+}
+
+func TestRecordsAdoptsExistingRecords(t *testing.T) {
+	provider := &Provider{
+		Options: Options{AdoptExistingRecords: true},
+		client: &recordingClient{
+			zones: []*Zone{{ID: 1, Domain: "example.com", Records: []*Record{
+				{Type: RecordTypeA, Name: "www", Value: "192.0.2.1"},
+			}}},
+		},
+		zoneMap: xsync.NewMapOf[string, int64](),
+	}
+
+	records, err := provider.Records(context.Background())
+	if err != nil {
+		t.Fatalf("Records() error = %v", err)
+	}
+	if got := records[0].Labels[endpoint.OwnerLabelKey]; got != "default" {
+		t.Fatalf("adopted owner = %q, want default", got)
 	}
 }
 
